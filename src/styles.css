@@ -1,0 +1,17 @@
+:root { font-family: Inter, system-ui, sans-serif; color: #111; background: #f4f6f8; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, textarea, select { font: inherit; }
+.layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.sidebar { background: #111827; color: #fff; padding: 12px; }
+.sidebar button { width: 100%; margin-bottom: 8px; }
+.main { padding: 16px; overflow: auto; }
+.card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.grid { display: grid; gap: 12px; }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+input, textarea, select { width: 100%; padding: 8px; margin-top: 6px; }
+button { border: 1px solid #d1d5db; background: #f9fafb; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.logs { font-family: ui-monospace, monospace; font-size: 12px; max-height: 180px; overflow: auto; background: #0b1020; color: #e5e7eb; padding: 8px; border-radius: 6px; }
+.reactflow-wrapper { height: 440px; border: 1px solid #ddd; }
+.badge { padding: 2px 8px; border-radius: 999px; background: #e5e7eb; font-size: 12px; }
