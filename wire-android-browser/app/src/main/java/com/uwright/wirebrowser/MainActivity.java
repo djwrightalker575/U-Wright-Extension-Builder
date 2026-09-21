@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        WebView.setWebContentsDebuggingEnabled(true);
         getWindow().setStatusBarColor(Color.rgb(17, 19, 24));
         getWindow().setNavigationBarColor(Color.rgb(17, 19, 24));
         CookieManager.getInstance().setAcceptCookie(true);
