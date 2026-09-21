@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "WIRE Android Bridge Scaffold",
+  "version": "0.1.0",
+  "description": "WIRE request/result transport scaffold for Chromium/Titanium migration.",
+  "permissions": ["tabs", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://www.chatgpt.com/*"],
+      "js": ["operator.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
