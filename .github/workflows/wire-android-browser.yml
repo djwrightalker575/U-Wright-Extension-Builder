@@ -1,6 +1,11 @@
 name: WIRE Android Browser
 
 on:
+  push:
+    branches: ['wire/android-browser-v0.1-20260920']
+    paths:
+      - 'wire-android-browser/**'
+      - '.github/workflows/wire-android-browser.yml'
   pull_request:
     branches: [main]
     paths:
