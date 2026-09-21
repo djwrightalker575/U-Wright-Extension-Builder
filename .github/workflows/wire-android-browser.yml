@@ -1,0 +1,183 @@
+name: WIRE Android Browser
+
+on:
+  push:
+    branches: ['wire/android-browser-v0.1-20260920']
+    paths:
+      - 'wire-android-browser/**'
+      - '.github/workflows/wire-android-browser.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wire-android-browser/**'
+      - '.github/workflows/wire-android-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wire-android-browser-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TITANIUM_REPO: https://github.com/jqssun/android-titanium-browser.git
+  TITANIUM_PIN: 97a21b7a98e4446142a39bd38190023ebb34cd74
+  WIRE_VERSION: 0.1.0
+
+jobs:
+  test:
+    name: Protocol and package tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore WIRE source bundle
+        run: |
+          base64 -d wire-android-browser/source-bundle.tar.gz.b64 > /tmp/wire-src.tar.gz
+          tar -xzf /tmp/wire-src.tar.gz
+      - name: Test WIRE core
+        run: |
+          set -euo pipefail
+          cp wire-android-browser/extension/core.js /tmp/wire-core.cjs
+          sed 's#require("../extension/core.js")#require("/tmp/wire-core.cjs")#' wire-android-browser/tests/core.test.cjs > /tmp/core.test.cjs
+          node /tmp/core.test.cjs
+      - name: Test deterministic CRX3 package
+        run: python3 wire-android-browser/tests/pack_crx3_test.py
+
+  fast-apk:
+    name: Build installable WIRE APK from pinned Titanium release
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore WIRE source bundle
+        run: |
+          base64 -d wire-android-browser/source-bundle.tar.gz.b64 > /tmp/wire-src.tar.gz
+          tar -xzf /tmp/wire-src.tar.gz
+
+      - name: Resolve current Titanium arm64 release APK
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.github.com/repos/jqssun/android-titanium-browser/releases/latest -o release.json
+          URL=$(jq -r '.assets[] | select(.name | test("arm64-v8a\\.apk$")) | .browser_download_url' release.json | head -n1)
+          test -n "$URL" && test "$URL" != "null"
+          echo "UPSTREAM_APK_URL=$URL" >> "$GITHUB_ENV"
+          curl -fL "$URL" -o titanium-arm64.apk
+
+      - name: Verify upstream APK shape
+        run: |
+          set -euo pipefail
+          unzip -t titanium-arm64.apk >/dev/null
+          unzip -p titanium-arm64.apk assets/extensions/bundled.json > upstream-bundled.json
+          test -s upstream-bundled.json
+
+      - name: Build WIRE CRX3 and merge bundled-extension index
+        run: |
+          set -euo pipefail
+          mkdir -p wire-dist
+          cp upstream-bundled.json wire-dist/bundled.json
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out wire-extension.pem >/dev/null 2>&1
+          python3 wire-android-browser/tools/pack_crx3.py wire-android-browser/extension wire-dist --key wire-extension.pem --name wire-android.crx | tee wire-extension-build.json
+          grep -q 'wire-android.crx' wire-dist/bundled.json
+
+      - name: Repack Titanium APK with WIRE extension
+        run: |
+          set -euo pipefail
+          python3 wire-android-browser/tools/repack_apk.py             titanium-arm64.apk wire-dist/bundled.json wire-dist/wire-android.crx wire-unsigned.apk
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)
+          "$BUILD_TOOLS/zipalign" -p -f 4 wire-unsigned.apk wire-aligned.apk
+          keytool -genkeypair -v -keystore wire-browser.jks -storepass wirebrowser -keypass wirebrowser             -alias wirebrowser -keyalg RSA -keysize 2048 -validity 10000             -dname 'CN=WIRE Android Browser,O=U-Wright Open Innovations,C=US' >/dev/null 2>&1
+          "$BUILD_TOOLS/apksigner" sign --ks wire-browser.jks --ks-pass pass:wirebrowser             --key-pass pass:wirebrowser --ks-key-alias wirebrowser             --out WIRE-Android-Browser-v0.1-fast.apk wire-aligned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose WIRE-Android-Browser-v0.1-fast.apk
+
+      - name: Independent APK content verification
+        run: |
+          set -euo pipefail
+          unzip -t WIRE-Android-Browser-v0.1-fast.apk >/dev/null
+          unzip -l WIRE-Android-Browser-v0.1-fast.apk | grep -q 'assets/extensions/wire-android.crx'
+          unzip -p WIRE-Android-Browser-v0.1-fast.apk assets/extensions/bundled.json > verified-bundled.json
+          grep -q 'wire-android.crx' verified-bundled.json
+          sha256sum WIRE-Android-Browser-v0.1-fast.apk | tee WIRE-Android-Browser-v0.1-fast.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WIRE-Android-Browser-v0.1-fast
+          path: |
+            WIRE-Android-Browser-v0.1-fast.apk
+            WIRE-Android-Browser-v0.1-fast.apk.sha256
+            wire-extension-build.json
+          if-no-files-found: error
+          retention-days: 30
+
+  source-apk:
+    name: Full source compile from pinned Titanium
+    needs: fast-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore WIRE source bundle
+        run: |
+          base64 -d wire-android-browser/source-bundle.tar.gz.b64 > /tmp/wire-src.tar.gz
+          tar -xzf /tmp/wire-src.tar.gz
+
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean || true
+          df -h
+
+      - name: Checkout pinned Titanium source
+        run: |
+          set -euo pipefail
+          git clone "$TITANIUM_REPO" titanium
+          git -C titanium checkout "$TITANIUM_PIN"
+          git -C titanium submodule update --init --recursive
+          test "$(git -C titanium rev-parse HEAD)" = "$TITANIUM_PIN"
+
+      - name: Apply guarded WIRE overlay
+        run: |
+          set -euo pipefail
+          python3 wire-android-browser/tools/patch_upstream.py titanium wire-android-browser
+          grep -q 'com.uwright.wirebrowser' titanium/args.gn
+          grep -q 'pack_crx3.py' titanium/build.sh
+          test -f titanium/extensions/wire-src/manifest.json
+
+      - name: Generate ephemeral APK signing material
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v -keystore wire-test.jks -storepass wirebrowser -keypass wirebrowser             -alias wirebrowser -keyalg RSA -keysize 2048 -validity 10000             -dname 'CN=WIRE Android Browser,O=U-Wright Open Innovations,C=US' >/dev/null 2>&1
+          printf 'storePassword=wirebrowser\nkeyPassword=wirebrowser\nkeyAlias=wirebrowser\n' > local.properties
+          echo "LOCAL_TEST_JKS=$(base64 -w0 local.properties)" >> "$GITHUB_ENV"
+          echo "STORE_TEST_JKS=$(base64 -w0 wire-test.jks)" >> "$GITHUB_ENV"
+
+      - name: Compile Chromium/Titanium arm64 APK
+        working-directory: titanium
+        run: |
+          set -euo pipefail
+          chmod +x *.sh extensions/pack_crx3.py
+          ./build.sh
+
+      - name: Verify source-built APK contains WIRE and correct package
+        run: |
+          set -euo pipefail
+          APK=$(find titanium/chromium/src/out/release -name '*arm64-v8a.apk' | head -n1)
+          test -n "$APK"
+          cp "$APK" WIRE-Android-Browser-v0.1-source.apk
+          unzip -l WIRE-Android-Browser-v0.1-source.apk | grep -q 'assets/extensions/wire-android.crx'
+          unzip -p WIRE-Android-Browser-v0.1-source.apk assets/extensions/bundled.json > source-bundled.json
+          grep -q 'wire-android.crx' source-bundled.json
+          AAPT=$(find titanium/chromium/src/third_party/android_sdk/public/build-tools -name aapt2 -o -name aapt | head -n1)
+          if [ -n "$AAPT" ]; then "$AAPT" dump badging WIRE-Android-Browser-v0.1-source.apk | tee source-badging.txt || true; fi
+          sha256sum WIRE-Android-Browser-v0.1-source.apk | tee WIRE-Android-Browser-v0.1-source.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WIRE-Android-Browser-v0.1-source
+          path: |
+            WIRE-Android-Browser-v0.1-source.apk
+            WIRE-Android-Browser-v0.1-source.apk.sha256
+            source-badging.txt
+          if-no-files-found: error
+          retention-days: 30
