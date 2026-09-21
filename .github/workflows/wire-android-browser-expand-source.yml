@@ -1,0 +1,44 @@
+name: WIRE Android Browser expand source
+
+on:
+  push:
+    branches:
+      - wire-android-browser-v0.1.1
+    paths:
+      - ".github/workflows/wire-android-browser-expand-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v5
+        with:
+          ref: wire-android-browser-v0.1.1
+
+      - name: Extract known-good v0.1 source
+        shell: bash
+        run: |
+          rm -rf wire-android-browser
+          tar -xzf wire-android-browser-v0.1-source.tgz
+          MAIN="wire-android-browser/app/src/main/java/com/uwright/wirebrowser/MainActivity.java"
+          test -f "$MAIN"
+          sed -i 's/textDialog("Runtime status", o.toString(2));/textDialog("Runtime status", o.toString());/' "$MAIN"
+          sed -i 's/textDialog("Capabilities", a.toString(2));/textDialog("Capabilities", a.toString());/' "$MAIN"
+
+      - name: Commit expanded source snapshot
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wire-android-browser
+          if git diff --cached --quiet; then
+            echo "Source already expanded"
+          else
+            git commit -m "Expand WIRE Android Browser source for v0.1.1 repair"
+            git push origin HEAD:wire-android-browser-v0.1.1
+          fi
