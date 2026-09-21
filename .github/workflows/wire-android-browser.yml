@@ -36,7 +36,11 @@ jobs:
           base64 -d wire-android-browser/source-bundle.tar.gz.b64 > /tmp/wire-src.tar.gz
           tar -xzf /tmp/wire-src.tar.gz
       - name: Test WIRE core
-        run: node wire-android-browser/tests/core.test.cjs
+        run: |
+          set -euo pipefail
+          cp wire-android-browser/extension/core.js /tmp/wire-core.cjs
+          sed 's#require("../extension/core.js")#require("/tmp/wire-core.cjs")#' wire-android-browser/tests/core.test.cjs > /tmp/core.test.cjs
+          node /tmp/core.test.cjs
       - name: Test deterministic CRX3 package
         run: python3 wire-android-browser/tests/pack_crx3_test.py
 
