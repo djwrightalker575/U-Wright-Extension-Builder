@@ -1,0 +1,23 @@
+name: WIRE Actions Bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/wire-actions-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove hosted runner execution
+        run: |
+          set -euo pipefail
+          echo WIRE_ACTIONS_SMOKE_OK
+          uname -a
+          python3 --version
+          node --version
