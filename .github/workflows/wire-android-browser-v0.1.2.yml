@@ -1,0 +1,85 @@
+name: WIRE Android Browser v0.1.2
+
+on:
+  push:
+    branches:
+      - wire-android-browser-v0.1.2
+    paths:
+      - ".github/workflows/wire-android-browser-v0.1.2.yml"
+      - "wire-android-browser/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: wire-android-browser-v0.1.2
+
+      - name: Verify source
+        shell: bash
+        run: |
+          test -f wire-android-browser/app/src/main/java/com/uwright/wirebrowser/MainActivity.java
+          test -f wire-android-browser/app/src/main/AndroidManifest.xml
+          grep -F 'versionName '\''0.1.2'\''' wire-android-browser/app/build.gradle
+          grep -F 'observer_v0.1.2' wire-android-browser/app/src/main/java/com/uwright/wirebrowser/MainActivity.java
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android platform
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build debug APK
+        working-directory: wire-android-browser
+        shell: bash
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Package outputs
+        shell: bash
+        run: |
+          cp wire-android-browser/app/build/outputs/apk/debug/app-debug.apk WIRE-Android-Browser-v0.1.2-debug.apk
+          tar --exclude='wire-android-browser/app/build' --exclude='wire-android-browser/.gradle' -czf WIRE-Android-Browser-v0.1.2-source.tgz wire-android-browser
+          sha256sum WIRE-Android-Browser-v0.1.2-debug.apk WIRE-Android-Browser-v0.1.2-source.tgz > SHA256SUMS.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WIRE-Android-Browser-v0.1.2
+          path: |
+            WIRE-Android-Browser-v0.1.2-debug.apk
+            WIRE-Android-Browser-v0.1.2-source.tgz
+            SHA256SUMS.txt
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: wire-android-v0.1.2-${{ github.run_number }}
+          name: WIRE Android Browser v0.1.2 build ${{ github.run_number }}
+          body: |
+            Device-test repair build.
+            Adds persistent replay protection, latest-turn-only request detection, semantic send discovery, native Enter fallback, and verifies that an outbound WIRE result becomes a real ChatGPT user turn before reporting success.
+          files: |
+            WIRE-Android-Browser-v0.1.2-debug.apk
+            WIRE-Android-Browser-v0.1.2-source.tgz
+            SHA256SUMS.txt
