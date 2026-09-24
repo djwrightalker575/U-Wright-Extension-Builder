@@ -1,0 +1,46 @@
+{
+  "schema": "WAR_ARCHITECTURE_CONTRACT_V1",
+  "name": "W.A.R — Wired.Android.Runtime",
+  "purpose": "Keep rapid self-extension compatible with one authoritative, inspectable, recoverable runtime.",
+  "invariants": [
+    {"id":"single_authority","rule":"One authoritative runtime and one authoritative persistent truth store."},
+    {"id":"single_protocol","rule":"WIRE_ANDROID_V1 is canonical until explicitly migrated."},
+    {"id":"verified_requires_evidence","rule":"VERIFIED requires observed intended-effect evidence."},
+    {"id":"single_capability_owner","rule":"Each responsibility has one owner; fallbacks are explicit."},
+    {"id":"permission_expansion_explicit","rule":"No capability silently expands Android privileges."},
+    {"id":"replacement_requires_retirement","rule":"Replacement requires migration or retirement of the superseded path."},
+    {"id":"source_build_runtime_identity","rule":"Source, build, and running instance identities remain traceable."},
+    {"id":"autoreturn_core","rule":"Auto-return is core infrastructure and regression-tested."},
+    {"id":"intent_not_mechanism","rule":"Human capability intent does not imply approval of a particular implementation mechanism."},
+    {"id":"fresh_model_assumption","rule":"Every reasoning turn may be handled by a fresh model with only explicitly supplied context."}
+  ],
+  "capability_maturity": [
+    "PROPOSED",
+    "IMPLEMENTED",
+    "BUILD_VERIFIED",
+    "DEVICE_VERIFIED",
+    "REGRESSION_VERIFIED",
+    "DEGRADED",
+    "DISABLED",
+    "UNKNOWN"
+  ],
+  "self_modification": {
+    "authoritative_source": "Git repository",
+    "live_changes": "candidate until reconciled to source",
+    "required_pipeline": [
+      "inspect",
+      "context_for_task",
+      "plan",
+      "conflict_check",
+      "candidate",
+      "patch",
+      "compile",
+      "automated_test",
+      "physical_test",
+      "effect_verify",
+      "regression_test",
+      "promote_or_rollback",
+      "record"
+    ]
+  }
+}
