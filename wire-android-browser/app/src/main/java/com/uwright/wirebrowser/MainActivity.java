@@ -2,6 +2,8 @@ package com.uwright.wirebrowser;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -14,6 +16,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -55,7 +58,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
-    private static final String VERSION = "0.1.3";
+    private static final String VERSION = "0.1.5";
     private static final String OPERATOR_URL = "https://chatgpt.com/";
     private static final int FILE_CHOOSER_REQUEST = 7001;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -425,6 +428,7 @@ public class MainActivity extends Activity {
             o.put("last_chatgpt_terminal", lastChatGptTerminal);
             o.put("last_chatgpt_diagnostic", lastChatGptDiagnostic);
             o.put("processed_request_tokens", processedRequestTokenCount());
+            o.put("previous_exit", previousExitSummary());
             o.put("event_log", eventLog().getAbsolutePath());
         } catch (JSONException ignored) {}
         textDialog("Runtime status", o.toString());
@@ -538,6 +542,36 @@ public class MainActivity extends Activity {
                 .getStringSet("processed_requests", new HashSet<>()).size();
     }
 
+    private JSONObject previousExitSummary() {
+        JSONObject o = new JSONObject();
+        try {
+            if (Build.VERSION.SDK_INT < 30) {
+                o.put("available", false);
+                o.put("reason", "requires_android_11");
+                return o;
+            }
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(getPackageName(), 0, 3);
+            o.put("available", true);
+            if (exits == null || exits.isEmpty()) {
+                o.put("found", false);
+                return o;
+            }
+            ApplicationExitInfo x = exits.get(0);
+            o.put("found", true);
+            o.put("reason_code", x.getReason());
+            o.put("description", x.getDescription());
+            o.put("importance", x.getImportance());
+            o.put("timestamp", x.getTimestamp());
+            o.put("status", x.getStatus());
+            o.put("pss_kb", x.getPss());
+            o.put("rss_kb", x.getRss());
+        } catch (Exception e) {
+            try { o.put("error", e.toString()); } catch (JSONException ignored) {}
+        }
+        return o;
+    }
+
     private BrowserTab tabById(String id) {
         if (id == null || id.isEmpty()) return activeTab;
         for (BrowserTab t : tabs) if (t.id.equals(id)) return t;
@@ -625,10 +659,10 @@ public class MainActivity extends Activity {
             o.put("version", VERSION);
             o.put("actions", new JSONArray().put("capabilities").put("tabs").put("active_tab").put("open_tab").put("activate_tab").put("navigate").put("back").put("forward").put("reload").put("page_snapshot").put("query").put("click").put("fill").put("scroll").put("list_capabilities").put("install_capability").put("run_capability"));
             o.put("file_chooser", true);
-            o.put("chatgpt_adapter", "observer_v0.1.3_send_ready");
+            o.put("chatgpt_adapter", "observer_v0.1.5_native_paste");
             o.put("request_id_policy", "optional_input_runtime_monotonic_fallback");
             o.put("replay_protection", "persistent_request_id_and_payload_fingerprint");
-            o.put("return_verification", "composer_state_send_ready_click_user_turn_observed");
+            o.put("return_verification", "native_clipboard_paste_send_ready_click_user_turn_observed");
             o.put("self_extension", "browser_scoped_javascript_capability_packs");
             o.put("authority_boundary", "no_native_permissions_or_shell_from_capability_packs");
         } catch (JSONException ignored) {}
@@ -858,55 +892,142 @@ public class MainActivity extends Activity {
             cb.done(false);
             return;
         }
-        String q = JSONObject.quote(text);
-        String insertJs = "(()=>{try{const text=" + q + ";" +
+
+        String prepareJs = "(()=>{try{" +
                 "const vis=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};" +
-                "const sels=['#prompt-textarea[contenteditable=true]','[data-testid=prompt-textarea][contenteditable=true]','[contenteditable=true][data-lexical-editor=true]','.ProseMirror[contenteditable=true]','textarea#prompt-textarea','textarea[name=prompt-textarea]'];" +
-                "let e=null,used=null;for(const sel of sels){const xs=[...document.querySelectorAll(sel)];e=xs.find(x=>vis(x)&&!x.disabled);if(e){used=sel;break;}}" +
-                "if(!e)return JSON.stringify({ok:false,stage:'locate_composer',error:'visible_composer_not_found'});" +
-                "const users=[...document.querySelectorAll('[data-message-author-role=user]')];e.focus();" +
-                "let method='';if(e.isContentEditable){" +
-                "const sel=window.getSelection(),range=document.createRange();range.selectNodeContents(e);sel.removeAllRanges();sel.addRange(range);" +
-                "let ok=false;try{ok=document.execCommand('insertText',false,text);method='execCommand_insertText';}catch(x){}" +
-                "if(!ok){try{document.execCommand('delete',false,null);}catch(x){};const before=new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType:'insertText',data:text});e.dispatchEvent(before);e.textContent=text;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));method='beforeinput_input_fallback';}" +
-                "}else{const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const d=Object.getOwnPropertyDescriptor(p,'value');if(d&&d.set)d.set.call(e,text);else e.value=text;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));method='native_value_setter';}" +
-                "e.dispatchEvent(new Event('change',{bubbles:true}));const observed=String(e.value!==undefined?e.value:(e.innerText||e.textContent||''));" +
-                "return JSON.stringify({ok:observed.trim()===text.trim(),stage:'insert',selector:used,method:method,observed_length:observed.length,expected_length:text.length,user_count_before:users.length,contenteditable:!!e.isContentEditable});" +
-                "}catch(e){return JSON.stringify({ok:false,stage:'insert',error:String(e)});}})()";
-        operatorTab.web.evaluateJavascript(insertJs, insertValue -> {
-            JSONObject inserted = parseJsObject(insertValue);
-            lastChatGptDiagnostic = inserted.toString();
-            logEvent("chatgpt_composer_insert", operatorTab.id, inserted);
-            if (!inserted.optBoolean("ok")) {
+                "const e=[...document.querySelectorAll('#prompt-textarea.ProseMirror[contenteditable=true],#prompt-textarea[contenteditable=true],[data-testid=prompt-textarea][contenteditable=true]')].find(vis);" +
+                "if(!e)return JSON.stringify({ok:false,stage:'prepare_native_paste',error:'prosemirror_not_found'});" +
+                "const current=String(e.innerText||e.textContent||'').replace(/\\u200b/g,'').trim();" +
+                "const users=[...document.querySelectorAll('[data-message-author-role=user]')];" +
+                "e.focus();const sel=window.getSelection(),r=document.createRange();r.selectNodeContents(e);r.collapse(false);sel.removeAllRanges();sel.addRange(r);" +
+                "return JSON.stringify({ok:true,stage:'prepare_native_paste',composer_empty:current.length===0,current_length:current.length,user_count_before:users.length,id:e.id,className:e.className,active:document.activeElement===e});" +
+                "}catch(e){return JSON.stringify({ok:false,stage:'prepare_native_paste',error:String(e)});}})()";
+
+        operatorTab.web.evaluateJavascript(prepareJs, value -> {
+            JSONObject prepared = parseJsObject(value);
+            lastChatGptDiagnostic = prepared.toString();
+            logEvent("chatgpt_native_paste_prepare", operatorTab.id, prepared);
+
+            if (!prepared.optBoolean("ok")) {
                 lastChatGptTerminal = "FAILED";
                 cb.done(false);
                 return;
             }
-            if (!submit) {
-                lastChatGptTerminal = "VERIFIED";
-                cb.done(true);
+            if (!prepared.optBoolean("composer_empty")) {
+                lastChatGptTerminal = "FAILED";
+                JSONObject failure = new JSONObjectSafe()
+                        .put("stage", "prepare_native_paste")
+                        .put("error", "composer_not_empty_refusing_overwrite")
+                        .put("diagnostic", prepared).obj();
+                lastChatGptDiagnostic = failure.toString();
+                logEvent("chatgpt_native_paste_refused", operatorTab.id, failure);
+                cb.done(false);
                 return;
             }
-            int beforeUsers = inserted.optInt("user_count_before", -1);
-            waitForChatGptSendReady(text, beforeUsers, 0, false, cb);
+
+            int beforeUsers = prepared.optInt("user_count_before", -1);
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("WIRE auto-return", text));
+
+            main.postDelayed(() -> {
+                try {
+                    operatorTab.web.requestFocus();
+                    long now = android.os.SystemClock.uptimeMillis();
+                    KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PASTE, 0);
+                    KeyEvent up = new KeyEvent(now, now + 10, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_PASTE, 0);
+                    boolean downHandled = operatorTab.web.dispatchKeyEvent(down);
+                    boolean upHandled = operatorTab.web.dispatchKeyEvent(up);
+
+                    JSONObject d = new JSONObjectSafe()
+                            .put("stage", "native_paste")
+                            .put("keycode", KeyEvent.KEYCODE_PASTE)
+                            .put("down_handled", downHandled)
+                            .put("up_handled", upHandled)
+                            .put("text_length", text.length()).obj();
+                    lastChatGptDiagnostic = d.toString();
+                    logEvent("chatgpt_native_paste", operatorTab.id, d);
+                    verifyNativePaste(text, beforeUsers, submit, 0, cb);
+                } catch (Exception e) {
+                    lastChatGptTerminal = "FAILED";
+                    JSONObject failure = new JSONObjectSafe()
+                            .put("stage", "native_paste")
+                            .put("error", e.toString()).obj();
+                    lastChatGptDiagnostic = failure.toString();
+                    logEvent("chatgpt_native_paste_exception", operatorTab.id, failure);
+                    cb.done(false);
+                }
+            }, 180);
         });
     }
 
-    private void waitForChatGptSendReady(String text, int beforeUsers, int attempt, boolean repaired, BoolCallback cb) {
+    private void verifyNativePaste(String text, int beforeUsers, boolean submit, int attempt, BoolCallback cb) {
+        String needle = text.substring(0, Math.min(text.length(), 160));
+        String nq = JSONObject.quote(needle);
+        String js = "(()=>{try{const needle=" + nq + ";" +
+                "const e=document.querySelector('#prompt-textarea.ProseMirror[contenteditable=true],#prompt-textarea[contenteditable=true]');" +
+                "const content=e?String(e.innerText||e.textContent||''):'';" +
+                "const b=document.querySelector('#composer-submit-button')||document.querySelector('button[data-testid=send-button]');" +
+                "const aria=b?b.getAttribute('aria-disabled'):null;const sendReady=!!b&&!b.disabled&&aria!=='true';" +
+                "return JSON.stringify({ok:content.includes(needle),stage:'verify_native_paste',composer_contains_payload:content.includes(needle),composer_length:content.length,send_ready:sendReady,button_found:!!b,aria_disabled:aria,id:b?b.id:null,testid:b?b.getAttribute('data-testid'):null});" +
+                "}catch(e){return JSON.stringify({ok:false,stage:'verify_native_paste',error:String(e)});}})()";
+        main.postDelayed(() -> operatorTab.web.evaluateJavascript(js, value -> {
+            JSONObject d = parseJsObject(value);
+            try { d.put("attempt", attempt); } catch (JSONException ignored) {}
+            lastChatGptDiagnostic = d.toString();
+            logEvent("chatgpt_native_paste_verify", operatorTab.id, d);
+
+            if (d.optBoolean("composer_contains_payload")) {
+                if (!submit) {
+                    lastChatGptTerminal = "VERIFIED";
+                    cb.done(true);
+                    return;
+                }
+                if (d.optBoolean("send_ready")) {
+                    clickChatGptSend(text, beforeUsers, cb);
+                    return;
+                }
+                waitForChatGptSendReady(text, beforeUsers, 0, cb);
+                return;
+            }
+
+            if (attempt == 5) {
+                // Fallback to a standard Ctrl+V WebView key path, still avoiding InputConnection ownership.
+                try {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, 0, KeyEvent.META_CTRL_ON);
+                    KeyEvent up = new KeyEvent(now, now + 10, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_V, 0, KeyEvent.META_CTRL_ON);
+                    operatorTab.web.dispatchKeyEvent(down);
+                    operatorTab.web.dispatchKeyEvent(up);
+                    logEvent("chatgpt_native_paste_ctrl_v_fallback", operatorTab.id, new JSONObject());
+                } catch (Exception e) {
+                    logEvent("chatgpt_native_paste_ctrl_v_exception", operatorTab.id, json("error", e.toString()));
+                }
+            }
+
+            if (attempt < 12) {
+                verifyNativePaste(text, beforeUsers, submit, attempt + 1, cb);
+                return;
+            }
+
+            lastChatGptTerminal = "FAILED";
+            cb.done(false);
+        }), attempt == 0 ? 250 : 220);
+    }
+
+    private void waitForChatGptSendReady(String text, int beforeUsers, int attempt, BoolCallback cb) {
         String needle = text.substring(0, Math.min(text.length(), 160));
         String nq = JSONObject.quote(needle);
         String readyJs = "(()=>{try{const needle=" + nq + ";" +
-                "const vis=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};" +
-                "const editors=[...document.querySelectorAll('#prompt-textarea[contenteditable=true],[data-testid=prompt-textarea][contenteditable=true],[contenteditable=true][data-lexical-editor=true],.ProseMirror[contenteditable=true],textarea#prompt-textarea,textarea[name=prompt-textarea]')].filter(vis);" +
-                "const e=editors[0]||null;const composer=e?String(e.value!==undefined?e.value:(e.innerText||e.textContent||'')):'';" +
-                "const selectors=['#composer-submit-button','button[data-testid*=send-button]','button[aria-label=\\\"Send prompt\\\"]','button[aria-label*=Send]','button.composer-submit-btn'];let b=null,used=null;" +
-                "for(const sel of selectors){const xs=[...document.querySelectorAll(sel)];b=xs.find(x=>vis(x));if(b){used=sel;break;}}" +
+                "const e=document.querySelector('#prompt-textarea.ProseMirror[contenteditable=true],#prompt-textarea[contenteditable=true]');" +
+                "const composer=e?String(e.innerText||e.textContent||''):'';" +
+                "const b=document.querySelector('#composer-submit-button')||document.querySelector('button[data-testid=send-button]');" +
                 "const aria=b?b.getAttribute('aria-disabled'):null;const ready=!!b&&!b.disabled&&aria!=='true';" +
-                "return JSON.stringify({ok:true,stage:'send_ready',composer_found:!!e,composer_contains_payload:composer.includes(needle),composer_length:composer.length,button_found:!!b,button_selector:used,button_disabled:b?!!b.disabled:null,aria_disabled:aria,send_ready:ready,testid:b?b.getAttribute('data-testid'):null,id:b?b.id:null,aria:b?b.getAttribute('aria-label'):null});" +
+                "return JSON.stringify({ok:true,stage:'send_ready',composer_contains_payload:composer.includes(needle),composer_length:composer.length,button_found:!!b,button_disabled:b?!!b.disabled:null,aria_disabled:aria,send_ready:ready,id:b?b.id:null,testid:b?b.getAttribute('data-testid'):null,aria:b?b.getAttribute('aria-label'):null});" +
                 "}catch(e){return JSON.stringify({ok:false,stage:'send_ready',error:String(e)});}})()";
+
         main.postDelayed(() -> operatorTab.web.evaluateJavascript(readyJs, value -> {
             JSONObject d = parseJsObject(value);
-            try { d.put("attempt", attempt); d.put("repaired", repaired); } catch (JSONException ignored) {}
+            try { d.put("attempt", attempt); } catch (JSONException ignored) {}
             lastChatGptDiagnostic = d.toString();
             logEvent("chatgpt_send_ready_probe", operatorTab.id, d);
 
@@ -915,51 +1036,20 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            if (!repaired && attempt == 8 && d.optBoolean("composer_contains_payload")) {
-                repairChatGptComposerState(text, beforeUsers, cb);
-                return;
-            }
-
-            if (attempt < 24) {
-                waitForChatGptSendReady(text, beforeUsers, attempt + 1, repaired, cb);
-                return;
-            }
-
-            lastChatGptTerminal = "FAILED";
-            JSONObject failure = new JSONObjectSafe()
-                    .put("stage", "send_ready")
-                    .put("error", "composer_never_became_send_ready")
-                    .put("last_probe", d).obj();
-            lastChatGptDiagnostic = failure.toString();
-            logEvent("chatgpt_send_ready_failed", operatorTab.id, failure);
-            cb.done(false);
-        }), attempt == 0 ? 350 : 250);
-    }
-
-    private void repairChatGptComposerState(String text, int beforeUsers, BoolCallback cb) {
-        String q = JSONObject.quote(text);
-        String js = "(()=>{try{const text=" + q + ";" +
-                "const vis=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};" +
-                "const e=[...document.querySelectorAll('#prompt-textarea[contenteditable=true],[data-testid=prompt-textarea][contenteditable=true],[contenteditable=true][data-lexical-editor=true],.ProseMirror[contenteditable=true]')].find(vis);" +
-                "if(!e)return JSON.stringify({ok:false,stage:'repair_editor_state',error:'contenteditable_not_found'});e.focus();" +
-                "const sel=window.getSelection(),range=document.createRange();range.selectNodeContents(e);sel.removeAllRanges();sel.addRange(range);" +
-                "let pasteDispatched=false;try{const dt=new DataTransfer();dt.setData('text/plain',text);pasteDispatched=e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));}catch(x){}" +
-                "const sel2=window.getSelection(),range2=document.createRange();range2.selectNodeContents(e);sel2.removeAllRanges();sel2.addRange(range2);" +
-                "let exec=false;try{exec=document.execCommand('insertText',false,text);}catch(x){}" +
-                "e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:text}));" +
-                "const observed=String(e.innerText||e.textContent||'');return JSON.stringify({ok:observed.trim()===text.trim(),stage:'repair_editor_state',paste_dispatched:pasteDispatched,exec_command:exec,observed_length:observed.length});" +
-                "}catch(e){return JSON.stringify({ok:false,stage:'repair_editor_state',error:String(e)});}})()";
-        operatorTab.web.evaluateJavascript(js, value -> {
-            JSONObject d = parseJsObject(value);
-            lastChatGptDiagnostic = d.toString();
-            logEvent("chatgpt_composer_repair", operatorTab.id, d);
-            if (!d.optBoolean("ok")) {
+            if (!d.optBoolean("composer_contains_payload") && attempt >= 5) {
                 lastChatGptTerminal = "FAILED";
                 cb.done(false);
                 return;
             }
-            waitForChatGptSendReady(text, beforeUsers, 9, true, cb);
-        });
+
+            if (attempt < 24) {
+                waitForChatGptSendReady(text, beforeUsers, attempt + 1, cb);
+                return;
+            }
+
+            lastChatGptTerminal = "FAILED";
+            cb.done(false);
+        }), attempt == 0 ? 300 : 250);
     }
 
     private void clickChatGptSend(String text, int beforeUsers, BoolCallback cb) {
