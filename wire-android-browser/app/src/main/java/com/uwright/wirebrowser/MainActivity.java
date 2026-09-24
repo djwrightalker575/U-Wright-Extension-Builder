@@ -58,7 +58,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
-    private static final String VERSION = "0.2.0";
+    private static final String VERSION = "0.2.1";
     private static final String OPERATOR_URL = "https://chatgpt.com/";
     private static final int FILE_CHOOSER_REQUEST = 7001;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -658,9 +658,24 @@ public class MainActivity extends Activity {
             case "list_capabilities" -> sendResult(requestId, action, "VERIFIED", listCapabilityJson());
             case "install_capability" -> installCapability(requestId, action, args);
             case "run_capability" -> runCapability(requestId, action, args);
-            case "runtime_truth" -> sendResult(requestId, action, "VERIFIED", truthStore.snapshot());
+            case "runtime_truth" -> {
+                if ("full".equalsIgnoreCase(args.optString("mode", "summary"))) {
+                    sendResult(requestId, action, "FAILED", new JSONObjectSafe()
+                            .put("reason", "full_truth_not_inline_transport_safe")
+                            .put("use", "runtime_truth summary or truth_section")
+                            .put("local_full_snapshot", "WIRE menu > Runtime truth").obj());
+                } else {
+                    sendResult(requestId, action, "VERIFIED", truthStore.summary());
+                }
+            }
+            case "truth_section" -> {
+                JSONObject section = truthStore.section(args.optString("section", ""), args.optInt("limit", 12));
+                if (section.has("error")) sendResult(requestId, action, "FAILED", section);
+                else sendResult(requestId, action, "VERIFIED", section);
+            }
             case "context_snapshot" -> sendResult(requestId, action, "VERIFIED", contextCompiler.compileGlobal());
-            case "context_for_task" -> sendResult(requestId, action, "VERIFIED", contextCompiler.compileForTask(args.optString("task", "")));
+            case "context_for_task" -> sendResult(requestId, action, "VERIFIED",
+                    contextCompiler.compileForTask(args.optString("task", ""), args.optInt("max_chars", ContextCompiler.DEFAULT_MAX_CHARS)));
             case "record_decision" -> recordDecisionAction(requestId, action, args);
             case "record_fact" -> recordFactAction(requestId, action, args);
             case "set_mission" -> setMissionAction(requestId, action, args);
@@ -675,7 +690,7 @@ public class MainActivity extends Activity {
             o.put("protocol", "WIRE_ANDROID_V1");
             o.put("runtime", "W.A.R — Wired.Android.Runtime");
             o.put("version", VERSION);
-            o.put("actions", new JSONArray().put("capabilities").put("tabs").put("active_tab").put("open_tab").put("activate_tab").put("navigate").put("back").put("forward").put("reload").put("page_snapshot").put("query").put("click").put("fill").put("scroll").put("list_capabilities").put("install_capability").put("run_capability").put("runtime_truth").put("context_snapshot").put("context_for_task").put("record_decision").put("record_fact").put("set_mission").put("set_capability_state"));
+            o.put("actions", new JSONArray().put("capabilities").put("tabs").put("active_tab").put("open_tab").put("activate_tab").put("navigate").put("back").put("forward").put("reload").put("page_snapshot").put("query").put("click").put("fill").put("scroll").put("list_capabilities").put("install_capability").put("run_capability").put("runtime_truth").put("truth_section").put("context_snapshot").put("context_for_task").put("record_decision").put("record_fact").put("set_mission").put("set_capability_state"));
             o.put("file_chooser", true);
             o.put("chatgpt_adapter", "observer_v0.1.5_native_paste");
             o.put("request_id_policy", "optional_input_runtime_monotonic_fallback");
@@ -685,7 +700,9 @@ public class MainActivity extends Activity {
             o.put("authority_boundary", "no_native_permissions_or_shell_from_capability_packs");
             o.put("truth_store", "WAR_TRUTH_V1");
             o.put("context_compiler", "WAR_CONTEXT_V1");
-            o.put("continuity_model", "fresh_model_rehydrated_from_runtime_truth");
+            o.put("continuity_model", "fresh_model_rehydrated_from_compact_runtime_context");
+            o.put("inline_context_budget_chars", ContextCompiler.DEFAULT_MAX_CHARS);
+            o.put("full_truth_transport", "local_only_or_sectioned");
         } catch (JSONException ignored) {}
         return o;
     }
