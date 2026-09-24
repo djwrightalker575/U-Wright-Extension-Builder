@@ -4,7 +4,9 @@
     <application
         android:allowBackup="true"
         android:label="W.A.R — Wired.Android.Runtime"
-        android:icon="@mipmap/ic_launcher"\n        android:roundIcon="@mipmap/ic_launcher_round"\n        android:theme="@style/AppTheme"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
