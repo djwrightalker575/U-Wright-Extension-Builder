@@ -197,7 +197,7 @@ public final class TruthStore extends SQLiteOpenHelper {
         getWritableDatabase().insertWithOnConflict("capability_state", null, v, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
-    public synchronized void setMission(String id, String goal, String status, JSONObject state, boolean makeActive) {
+    public synchronized String setMission(String id, String goal, String status, JSONObject state, boolean makeActive) {
         String missionId = id == null || id.isEmpty() ? "mission-" + UUID.randomUUID() : id;
         long now = System.currentTimeMillis();
         ContentValues v = new ContentValues();
@@ -209,6 +209,7 @@ public final class TruthStore extends SQLiteOpenHelper {
         v.put("updated_at", now);
         getWritableDatabase().insertWithOnConflict("missions", null, v, SQLiteDatabase.CONFLICT_REPLACE);
         if (makeActive) putMeta("active_mission_id", missionId);
+        return missionId;
     }
 
     public synchronized void recordEvent(String type, JSONObject payload) {
