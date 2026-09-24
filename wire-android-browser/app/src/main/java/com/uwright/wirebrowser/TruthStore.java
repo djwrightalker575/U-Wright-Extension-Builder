@@ -311,11 +311,38 @@ public final class TruthStore extends SQLiteOpenHelper {
     public synchronized JSONObject activeMission() {
         JSONObject meta = readMeta();
         String id = meta.optString("active_mission_id", "");
-        if (id.isEmpty()) return JSONObject.NULL instanceof JSONObject ? new JSONObject() : new JSONObject();
-        JSONArray rows = readRows("SELECT id,goal,status,state_json,created_at,updated_at FROM missions WHERE id=? LIMIT 1",
+        if (id.isEmpty()) return new JSONObject();
+        return missionById(id);
+    }
+
+    public synchronized JSONObject decisionById(String id) {
+        return oneRow("SELECT id,topic,decision,rationale,status,created_at,updated_at FROM decisions WHERE id=? LIMIT 1",
                 new String[]{id},
-                new String[]{"id","goal","status","state_json","created_at","updated_at"}, 1);
-        return rows.length() > 0 ? rows.optJSONObject(0) : new JSONObject();
+                new String[]{"id","topic","decision","rationale","status","created_at","updated_at"});
+    }
+
+    public synchronized JSONObject factByKey(String category, String key) {
+        return oneRow("SELECT category,fact_key,value_json,evidence_json,status,updated_at FROM facts WHERE category=? AND fact_key=? LIMIT 1",
+                new String[]{category, key},
+                new String[]{"category","fact_key","value_json","evidence_json","status","updated_at"});
+    }
+
+    public synchronized JSONObject missionById(String id) {
+        return oneRow("SELECT id,goal,status,state_json,created_at,updated_at FROM missions WHERE id=? LIMIT 1",
+                new String[]{id},
+                new String[]{"id","goal","status","state_json","created_at","updated_at"});
+    }
+
+    public synchronized JSONObject capabilityById(String id) {
+        return oneRow("SELECT id,owner,maturity,evidence_json,updated_at FROM capability_state WHERE id=? LIMIT 1",
+                new String[]{id},
+                new String[]{"id","owner","maturity","evidence_json","updated_at"});
+    }
+
+    private JSONObject oneRow(String sql, String[] args, String[] columns) {
+        JSONArray rows = readRows(sql, args, columns, 1);
+        JSONObject o = rows.optJSONObject(0);
+        return o == null ? new JSONObject() : o;
     }
 
     private JSONArray readRows(String sql, String[] args, String[] columns, int limit) {
