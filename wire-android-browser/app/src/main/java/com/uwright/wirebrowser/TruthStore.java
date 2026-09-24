@@ -97,6 +97,8 @@ public final class TruthStore extends SQLiteOpenHelper {
         seedCapability("browser.scroll", "BrowserRuntime", "IMPLEMENTED", "{}");
         seedCapability("truth.store", "TruthKernel", "IMPLEMENTED", "{}");
         seedCapability("context.compiler", "ContextCompiler", "IMPLEMENTED", "{}");
+        seedCapability("context.inline_transport_budget", "ContextCompiler", "IMPLEMENTED", "{}");
+        seedCapability("truth.section_reader", "TruthKernel", "IMPLEMENTED", "{}");
 
         seedDecision("adr-0001", "Self-modification authority",
                 "The source repository is authoritative; live runtime changes are candidates until reconciled into source.",
@@ -109,6 +111,10 @@ public final class TruthStore extends SQLiteOpenHelper {
         seedDecision("adr-0003", "Continuity architecture",
                 "Model continuity must be reconstructed from W.A.R truth/context data instead of relying on conversation memory alone.",
                 "A fresh LLM should be able to recover operating context from machine-readable state.",
+                "ACTIVE");
+        seedDecision("adr-0004", "Context transport budget",
+                "Normal LLM context is compact and sectioned; event evidence is metadata-only and must never recursively embed prior full result payloads.",
+                "ChatGPT converts sufficiently large pastes into attachments, which breaks the current inline auto-return verifier and can recursively amplify context size.",
                 "ACTIVE");
     }
 
