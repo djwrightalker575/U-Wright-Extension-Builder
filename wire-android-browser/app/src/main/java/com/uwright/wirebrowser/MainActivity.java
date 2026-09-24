@@ -58,7 +58,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
-    private static final String VERSION = "0.1.5";
+    private static final String VERSION = "0.2.0";
     private static final String OPERATOR_URL = "https://chatgpt.com/";
     private static final int FILE_CHOOSER_REQUEST = 7001;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -75,6 +75,8 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> pendingFileChooser;
     private String lastChatGptDiagnostic = "{}";
     private String lastChatGptTerminal = "UNKNOWN";
+    private TruthStore truthStore;
+    private ContextCompiler contextCompiler;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -83,6 +85,12 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(Color.rgb(17, 19, 24));
         getWindow().setNavigationBarColor(Color.rgb(17, 19, 24));
         CookieManager.getInstance().setAcceptCookie(true);
+        truthStore = new TruthStore(this);
+        truthStore.seedDefaults(VERSION);
+        contextCompiler = new ContextCompiler(truthStore, VERSION);
+        truthStore.recordEvent("runtime_boot", new JSONObjectSafe()
+                .put("version", VERSION)
+                .put("previous_exit", previousExitSummary()).obj());
         loadCapabilities();
         buildUi();
         createTab(OPERATOR_URL, true);
@@ -145,7 +153,7 @@ public class MainActivity extends Activity {
         status.setTextColor(Color.LTGRAY);
         status.setTextSize(11);
         status.setSingleLine(true);
-        status.setText("WIRE Android Browser " + VERSION);
+        status.setText("W.A.R " + VERSION);
         status.setGravity(Gravity.CENTER_VERTICAL);
         status.setLayoutParams(new LinearLayout.LayoutParams(0, dp(42), 1));
 
@@ -362,7 +370,7 @@ public class MainActivity extends Activity {
     }
 
     private void showWireMenu() {
-        String[] items = {"Open ChatGPT operator", "Prime ChatGPT", "Reinject ChatGPT adapter", "ChatGPT diagnostics", "Toggle auto-return", "Core + installed capabilities", "Copy operator prompt", "Runtime status"};
+        String[] items = {"Open ChatGPT operator", "Prime ChatGPT", "Reinject ChatGPT adapter", "ChatGPT diagnostics", "Toggle auto-return", "Core + installed capabilities", "Copy operator prompt", "Context snapshot", "Runtime truth", "Runtime status"};
         new AlertDialog.Builder(this).setTitle("WIRE").setItems(items, (d, which) -> {
             switch (which) {
                 case 0 -> { if (operatorTab == null) operatorTab = createTab(OPERATOR_URL, true); else activateTab(operatorTab); }
@@ -372,7 +380,9 @@ public class MainActivity extends Activity {
                 case 4 -> { autoReturn = !autoReturn; updateChrome(); toast("Auto-return " + (autoReturn ? "enabled" : "disabled")); }
                 case 5 -> showCapabilities();
                 case 6 -> copyOperatorPrompt();
-                case 7 -> showRuntimeStatus();
+                case 7 -> textDialogWithCopy("W.A.R context", contextCompiler.compileGlobal().toString());
+                case 8 -> textDialogWithCopy("W.A.R runtime truth", truthStore.snapshot().toString());
+                case 9 -> showRuntimeStatus();
             }
         }).show();
     }
@@ -429,6 +439,7 @@ public class MainActivity extends Activity {
             o.put("last_chatgpt_diagnostic", lastChatGptDiagnostic);
             o.put("processed_request_tokens", processedRequestTokenCount());
             o.put("previous_exit", previousExitSummary());
+            o.put("truth_store", truthStore == null ? JSONObject.NULL : truthStore.health());
             o.put("event_log", eventLog().getAbsolutePath());
         } catch (JSONException ignored) {}
         textDialog("Runtime status", o.toString());
@@ -647,6 +658,13 @@ public class MainActivity extends Activity {
             case "list_capabilities" -> sendResult(requestId, action, "VERIFIED", listCapabilityJson());
             case "install_capability" -> installCapability(requestId, action, args);
             case "run_capability" -> runCapability(requestId, action, args);
+            case "runtime_truth" -> sendResult(requestId, action, "VERIFIED", truthStore.snapshot());
+            case "context_snapshot" -> sendResult(requestId, action, "VERIFIED", contextCompiler.compileGlobal());
+            case "context_for_task" -> sendResult(requestId, action, "VERIFIED", contextCompiler.compileForTask(args.optString("task", "")));
+            case "record_decision" -> recordDecisionAction(requestId, action, args);
+            case "record_fact" -> recordFactAction(requestId, action, args);
+            case "set_mission" -> setMissionAction(requestId, action, args);
+            case "set_capability_state" -> setCapabilityStateAction(requestId, action, args);
             default -> fail(requestId, action, "unknown_action");
         }
     }
@@ -655,9 +673,9 @@ public class MainActivity extends Activity {
         JSONObject o = new JSONObject();
         try {
             o.put("protocol", "WIRE_ANDROID_V1");
-            o.put("runtime", "WIRE Android Browser");
+            o.put("runtime", "W.A.R — Wired.Android.Runtime");
             o.put("version", VERSION);
-            o.put("actions", new JSONArray().put("capabilities").put("tabs").put("active_tab").put("open_tab").put("activate_tab").put("navigate").put("back").put("forward").put("reload").put("page_snapshot").put("query").put("click").put("fill").put("scroll").put("list_capabilities").put("install_capability").put("run_capability"));
+            o.put("actions", new JSONArray().put("capabilities").put("tabs").put("active_tab").put("open_tab").put("activate_tab").put("navigate").put("back").put("forward").put("reload").put("page_snapshot").put("query").put("click").put("fill").put("scroll").put("list_capabilities").put("install_capability").put("run_capability").put("runtime_truth").put("context_snapshot").put("context_for_task").put("record_decision").put("record_fact").put("set_mission").put("set_capability_state"));
             o.put("file_chooser", true);
             o.put("chatgpt_adapter", "observer_v0.1.5_native_paste");
             o.put("request_id_policy", "optional_input_runtime_monotonic_fallback");
@@ -665,8 +683,74 @@ public class MainActivity extends Activity {
             o.put("return_verification", "native_clipboard_paste_send_ready_click_user_turn_observed");
             o.put("self_extension", "browser_scoped_javascript_capability_packs");
             o.put("authority_boundary", "no_native_permissions_or_shell_from_capability_packs");
+            o.put("truth_store", "WAR_TRUTH_V1");
+            o.put("context_compiler", "WAR_CONTEXT_V1");
+            o.put("continuity_model", "fresh_model_rehydrated_from_runtime_truth");
         } catch (JSONException ignored) {}
         return o;
+    }
+
+    private void recordDecisionAction(String requestId, String action, JSONObject args) {
+        String decision = args.optString("decision", "").trim();
+        if (decision.isEmpty()) { fail(requestId, action, "decision_required"); return; }
+        String id = truthStore.recordDecision(
+                args.optString("id", ""),
+                args.optString("topic", "general"),
+                decision,
+                args.optString("rationale", ""),
+                args.optString("status", "ACTIVE"));
+        JSONObject observed = truthStore.decisionById(id);
+        String status = id.equals(observed.optString("id")) ? "VERIFIED" : "FAILED";
+        sendResult(requestId, action, status, observed);
+    }
+
+    private void recordFactAction(String requestId, String action, JSONObject args) {
+        String category = args.optString("category", "general");
+        String key = args.optString("key", "").trim();
+        if (key.isEmpty()) { fail(requestId, action, "key_required"); return; }
+        JSONObject value = args.optJSONObject("value");
+        if (value == null) value = new JSONObjectSafe().put("text", args.optString("text", "")).obj();
+        JSONObject evidence = args.optJSONObject("evidence");
+        truthStore.putFact(category, key, value, evidence, args.optString("status", "CURRENT"));
+        JSONObject observed = truthStore.factByKey(category, key);
+        String status = key.equals(observed.optString("fact_key")) ? "VERIFIED" : "FAILED";
+        sendResult(requestId, action, status, observed);
+    }
+
+    private void setMissionAction(String requestId, String action, JSONObject args) {
+        String goal = args.optString("goal", "").trim();
+        if (goal.isEmpty()) { fail(requestId, action, "goal_required"); return; }
+        JSONObject state = args.optJSONObject("state");
+        String id = truthStore.setMission(
+                args.optString("id", ""),
+                goal,
+                args.optString("status", "ACTIVE"),
+                state,
+                args.optBoolean("make_active", true));
+        JSONObject observed = truthStore.missionById(id);
+        String status = id.equals(observed.optString("id")) ? "VERIFIED" : "FAILED";
+        sendResult(requestId, action, status, observed);
+    }
+
+    private void setCapabilityStateAction(String requestId, String action, JSONObject args) {
+        String id = args.optString("id", "").trim();
+        if (id.isEmpty()) { fail(requestId, action, "capability_id_required"); return; }
+        String maturity = args.optString("maturity", "UNKNOWN").trim().toUpperCase(Locale.ROOT);
+        Set<String> allowed = new HashSet<>();
+        allowed.add("PROPOSED");
+        allowed.add("IMPLEMENTED");
+        allowed.add("BUILD_VERIFIED");
+        allowed.add("DEVICE_VERIFIED");
+        allowed.add("REGRESSION_VERIFIED");
+        allowed.add("DEGRADED");
+        allowed.add("DISABLED");
+        allowed.add("UNKNOWN");
+        if (!allowed.contains(maturity)) { fail(requestId, action, "invalid_maturity"); return; }
+        JSONObject evidence = args.optJSONObject("evidence");
+        truthStore.putCapabilityState(id, args.optString("owner", "unknown"), maturity, evidence);
+        JSONObject observed = truthStore.capabilityById(id);
+        String status = id.equals(observed.optString("id")) && maturity.equals(observed.optString("maturity")) ? "VERIFIED" : "FAILED";
+        sendResult(requestId, action, status, observed);
     }
 
     private JSONObject tabsJson() {
@@ -1142,6 +1226,19 @@ public class MainActivity extends Activity {
             try (FileOutputStream out = new FileOutputStream(eventLog(), true)) {
                 out.write((e.toString() + "\n").getBytes(StandardCharsets.UTF_8));
             }
+            if (truthStore != null) {
+                JSONObject truthEvent = new JSONObjectSafe()
+                        .put("tab_id", tabId)
+                        .put("event", payload == null ? new JSONObject() : payload).obj();
+                if (payload != null) {
+                    try {
+                        if (payload.has("request_id")) truthEvent.put("request_id", payload.optString("request_id"));
+                        if (payload.has("action")) truthEvent.put("action", payload.optString("action"));
+                        if (payload.has("status")) truthEvent.put("status", payload.optString("status"));
+                    } catch (JSONException ignored) {}
+                }
+                truthStore.recordEvent(type, truthEvent);
+            }
         } catch (Exception ignored) {}
     }
 
@@ -1168,6 +1265,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (pendingFileChooser != null) pendingFileChooser.onReceiveValue(null);
         for (BrowserTab t : tabs) t.web.destroy();
+        if (truthStore != null) truthStore.close();
         super.onDestroy();
     }
 
