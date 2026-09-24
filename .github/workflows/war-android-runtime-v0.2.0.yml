@@ -1,4 +1,4 @@
-name: W.A.R Wired.Android.Runtime v0.2.0
+name: W.A.R Wired.Android.Runtime v0.2.0\n# build-attempt: 2
 
 on:
   push:
