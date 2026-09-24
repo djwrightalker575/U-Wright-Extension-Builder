@@ -309,6 +309,54 @@ public final class TruthStore extends SQLiteOpenHelper {
                 new String[]{"id","ts","type","request_id","action","status","payload_json"}, limit);
     }
 
+    public synchronized JSONArray recentEventHeaders(int limit) {
+        return readRows("SELECT id,ts,type,request_id,action,status FROM events ORDER BY id DESC LIMIT ?",
+                new String[]{String.valueOf(Math.max(1, Math.min(limit, 100)))},
+                new String[]{"id","ts","type","request_id","action","status"}, limit);
+    }
+
+    public synchronized JSONObject summary() {
+        JSONObject out = new JSONObject();
+        try {
+            out.put("schema", "WAR_TRUTH_SUMMARY_V1");
+            out.put("generated_at_ms", System.currentTimeMillis());
+            out.put("meta", readMeta());
+            out.put("health", health());
+            out.put("active_mission", activeMission());
+            out.put("capabilities", capabilityStates());
+            out.put("recent_decisions", recentDecisions(6));
+            out.put("recent_event_headers", recentEventHeaders(8));
+        } catch (JSONException ignored) {}
+        return out;
+    }
+
+    public synchronized JSONObject section(String section, int limit) {
+        String key = section == null ? "" : section.trim().toLowerCase(Locale.ROOT);
+        int safeLimit = Math.max(1, Math.min(limit, 50));
+        JSONObject out = new JSONObject();
+        try {
+            out.put("schema", "WAR_TRUTH_SECTION_V1");
+            out.put("section", key);
+            switch (key) {
+                case "meta" -> out.put("data", readMeta());
+                case "health" -> out.put("data", health());
+                case "invariants" -> out.put("data", invariants());
+                case "capabilities" -> out.put("data", capabilityStates());
+                case "decisions" -> out.put("data", recentDecisions(safeLimit));
+                case "facts" -> out.put("data", recentFacts(safeLimit));
+                case "events" -> out.put("data", recentEventHeaders(safeLimit));
+                case "mission" -> out.put("data", activeMission());
+                default -> {
+                    out.put("error", "unknown_section");
+                    out.put("available", new JSONArray()
+                            .put("meta").put("health").put("invariants").put("capabilities")
+                            .put("decisions").put("facts").put("events").put("mission"));
+                }
+            }
+        } catch (JSONException ignored) {}
+        return out;
+    }
+
     public synchronized JSONObject activeMission() {
         JSONObject meta = readMeta();
         String id = meta.optString("active_mission_id", "");
