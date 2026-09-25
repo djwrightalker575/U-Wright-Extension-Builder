@@ -96,6 +96,7 @@ class WireReleaseRequest(BaseModel):
     distributor: str | None = None
     dry_run: bool = False
     idempotency_key: str | None = None
+    result: dict[str, Any] | None = None
 
 class WireReleaseResult(BaseModel):
     protocol: str = "WIRE_RELEASE_RESULT_V1"
