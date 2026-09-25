@@ -64,13 +64,25 @@ class ReleaseService:
             raise ValueError(f"no distributor adapter installed for {mission.distributor!r}")
 
         if req.action == "apply_evidence":
+            if not req.result:
+                raise ValueError("apply_evidence requires result")
             mission.evidence.append(Evidence(
                 request_id=req.request_id,
                 source="wire.android",
-                status="OBSERVED",
-                data=req.draft.model_dump(mode="json") if req.draft else {},
+                status=str(req.result.get("status", "UNKNOWN")),
+                data=req.result,
             ))
-            return self._finish(req, mission, "VERIFIED", {"evidence_recorded": True})
+            if req.result.get("status") == "VERIFIED" and req.result.get("data", {}).get("success") is True:
+                if mission.state == MissionState.SUBMISSION_PENDING:
+                    transition(mission, MissionState.SUBMITTED)
+                elif mission.state == MissionState.SUBMITTED:
+                    transition(mission, MissionState.MODERATION)
+                elif mission.state == MissionState.MODERATION:
+                    transition(mission, MissionState.LIVE)
+                else:
+                    raise ValueError(f"verified evidence cannot advance state {mission.state.value}")
+                return self._finish(req, mission, "VERIFIED", {"evidence_recorded": True, "state_advanced": True})
+            return self._finish(req, mission, "OBSERVED", {"evidence_recorded": True, "state_advanced": False})
 
         if req.action == "status":
             return self._finish(req, mission, "VERIFIED", {"mission": mission.model_dump(mode="json")})
